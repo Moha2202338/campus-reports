@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>بلاغات ومقترحات الجامعة</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="hero"><div class="wrap">
+  <div><h1>بلاغات ومقترحات الجامعة</h1><p>أبلغ عن مشكلة أو اقترح تحسينََا وتـابـع حـالـتـه</p></div>
+</div></div>
+
+<div class="wrap">
+<nav id="tabs">
+<button data-t="new" class="on">قدم على اقتراح أو مشكلة</button>
+<button data-t="list">المتابعة</button>
+<button data-t="stats">الإحصائيات</button>
+</nav>
+
+<section id="new" class="card">
+<div class="seg">
+<label><input type="radio" name="kind" value="بلاغ" checked>بلاغ عن مشكلة</label>
+<label><input type="radio" name="kind" value="مقترح">مقترح تحسين</label>
+</div>
+<div class="row">
+<div><label class="f">التصنيف</label><select id="cat"></select></div>
+<div><label class="f">الموقع</label><select id="loc"></select></div>
+</div>
+<label class="f">الوصف</label><textarea id="desc" placeholder="اشرح بإيجاز..."></textarea>
+<label class="f">صورة (اختياري)</label><input type="file" id="img" accept="image/*">
+<label class="f">اسمك (اختياري)</label><input id="u">
+<button class="btn" id="send">إرسال</button>
+</section>
+
+<section id="list" class="hide">
+  <div class="card">
+    <input id="q" placeholder="🔍 ابحث بالنص أو برقم البلاغ">
+    <div class="row">
+      <div><label class="f">التصنيف</label><select id="fc"></select></div>
+      <div><label class="f">الموقع</label><select id="fl"></select></div>
+      <div><label class="f">الحالة</label><select id="fs"></select></div>
+    </div>
+  </div>
+  <div id="items"></div>
+</section>
+
+<section id="stats" class="hide">
+  <div class="card stats" id="cnt"></div>
+  <div class="card"><b>حسب التصنيف</b><div id="bc"></div></div>
+  <div class="card"><b>حسب الموقع</b><div id="bl"></div></div>
+</section>
+
+<section id="db" class="hide">
+  <div class="card"><b>Users</b><div class="meta">id, name, email, role</div></div>
+  <div class="card"><b>Reports</b><div class="meta">id, user_id, category_id, location_id, kind, description, image, status, created_at</div></div>
+  <div class="card"><b>Categories</b><div class="meta">id, name</div></div>
+  <div class="card"><b>Locations</b><div class="meta">id, name</div></div>
+  <div class="card"><b>Status_Updates</b><div class="meta">id, report_id, old_status, new_status, updated_by, updated_at</div></div>
+</section>
+</div>
+<div id="toast"></div>
+
+<script>
+const ST=['جديد','قيد المعالجة','تم الحل'];
+const CATS=['صيانة','نظافة','أمن وسلامة','تقنية','خدمات','مقترح تعليمي'];
+const LOCS=['المبنى A','المبنى B','المكتبة','المقصف','المواقف','القاعات'];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const now=()=>new Date().toLocaleString('ar-SA');
+
+let reports=[
+ {id:1,user:'أحمد',kind:'بلاغ',cat:'صيانة',loc:'المبنى A',desc:'تسريب مياه في الممر الثاني.',img:'',st:1,log:[{s:0,t:'أمس'},{s:1,t:'اليوم'}]},
+ {id:2,user:'سارة',kind:'مقترح',cat:'مقترح تعليمي',loc:'المكتبة',desc:'زيادة ساعات عمل المكتبة في فترة الاختبارات.',img:'',st:0,log:[{s:0,t:'اليوم'}]},
+ {id:3,user:'خالد',kind:'بلاغ',cat:'تقنية',loc:'القاعات',desc:'جهاز العرض في القاعة 12 لا يعمل.',img:'',st:2,log:[{s:0,t:'قبل يومين'},{s:1,t:'أمس'},{s:2,t:'اليوم'}]}
+];
+try{const s=localStorage.getItem('campus-reports');if(s)reports=JSON.parse(s)}catch(e){}
+const save=()=>{try{localStorage.setItem('campus-reports',JSON.stringify(reports))}catch(e){}};
+
+const fill=(el,arr,all)=>{el.innerHTML=(all?`<option value="">${all}</option>`:'')+arr.map((x,i)=>`<option value="${el.id==='fs'?i:x}">${x}</option>`).join('')};
+fill($('cat'),CATS);fill($('loc'),LOCS);fill($('fc'),CATS,'الكل');fill($('fl'),LOCS,'الكل');fill($('fs'),ST,'الكل');
+
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2200)}
+const ajax=fn=>new Promise(r=>setTimeout(()=>r(fn()),300)); // محاكاة AJAX: استبدلها بـ fetch() مع الخادم
+
+function show(t){
+ ['new','list','stats','db'].forEach(k=>$(k).classList.toggle('hide',k!==t));
+ [...$('tabs').children].forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+ if(t==='list')filter();if(t==='stats')stats();
+}
+$('tabs').onclick=e=>{if(e.target.dataset.t)show(e.target.dataset.t)};
+
+function shrink(file){return new Promise(res=>{
+ const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{
+  const k=Math.min(1,600/im.width),c=document.createElement('canvas');
+  c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+  res(c.toDataURL('image/jpeg',.7))};im.onerror=()=>res('');im.src=r.result};r.readAsDataURL(file)})}
+
+$('send').onclick=async()=>{
+ const d=$('desc').value.trim();
+ if(!d){toast('الرجاء كتابة الوصف');return}
+ const f=$('img').files[0],img=f?await shrink(f):'';
+ const id=Math.max(0,...reports.map(r=>r.id))+1;
+ reports.unshift({id,user:$('u').value.trim()||'مجهول',kind:document.querySelector('[name=kind]:checked').value,
+  cat:$('cat').value,loc:$('loc').value,desc:d,img,st:0,log:[{s:0,t:now()}]});
+ save();$('desc').value='';$('img').value='';
+ toast('تم الإرسال – رقم بلاغك: '+id);show('list');
+};
+
+function draw(list){
+ $('items').innerHTML=list.length?list.map(r=>`
+ <div class="card">
+  <div class="top"><b>#${r.id} · ${r.kind}</b><span class="badge s${r.st}">${ST[r.st]}</span></div>
+  <div class="meta">${esc(r.cat)} · ${esc(r.loc)} · ${esc(r.user)}</div>
+  <p>${esc(r.desc)}</p>
+  ${r.img?`<img class="img" src="${r.img}" alt="صورة مرفقة">`:''}
+  <div class="steps">${ST.map((s,i)=>`<div class="${i<=r.st?'on':''}">${s}</div>`).join('')}</div>
+  <ul class="log">${r.log.map(l=>`<li>${ST[l.s]} – ${l.t}</li>`).join('')}</ul>
+  ${$('admin').checked?`<div class="adminbox"><span class="meta">تغيير الحالة:</span>${ST.map((s,i)=>`<button class="btn s ${i===r.st?'cur':''}" onclick="setSt(${r.id},${i})">${s}</button>`).join('')}</div>`:''}
+ </div>`).join(''):'<div class="card empty">لا توجد نتائج</div>';
+}
+async function filter(){
+ const q=$('q').value.trim(),c=$('fc').value,l=$('fl').value,s=$('fs').value;
+ draw(await ajax(()=>reports.filter(r=>(!q||String(r.id)===q||r.desc.includes(q))&&(!c||r.cat===c)&&(!l||r.loc===l)&&(s===''||r.st==s))));
+}
+['q','fc','fl','fs'].forEach(i=>$(i).addEventListener(i==='q'?'input':'change',filter));
+$('admin').onchange=filter;
+
+async function setSt(id,v){
+ await ajax(()=>{const r=reports.find(x=>x.id===id);if(r.st!==v){r.st=v;r.log.push({s:v,t:now()});save()}});
+ toast('تم تحديث الحالة');filter();
+}
+
+function stats(){
+ $('cnt').innerHTML=`<div><b>${reports.length}</b><span>الإجمالي</span></div>`+ST.map((s,i)=>`<div><b>${reports.filter(r=>r.st===i).length}</b><span>${s}</span></div>`).join('');
+ const m=Math.max(1,reports.length);
+ const bars=(a,k)=>a.map(x=>{const n=reports.filter(r=>r[k]===x).length;return `<div class="bar"><em>${x}</em><div><i style="width:${n/m*100}%"></i></div><span>${n}</span></div>`}).join('');
+ $('bc').innerHTML=bars(CATS,'cat');$('bl').innerHTML=bars(LOCS,'loc');
+}
+</script>
+</body>
+</html>
